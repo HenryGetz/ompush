@@ -1,0 +1,24 @@
+{
+  "name": "ompush",
+  "version": "1.0.0",
+  "description": "Pushover notifications for oh-my-pi: one push when a prompt finishes, one siren when a tool needs approval. Zero subagent spam.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Henry Getz",
+  "repository": "https://github.com/HenryGetz/ompush",
+  "homepage": "https://github.com/HenryGetz/ompush",
+  "bugs": "https://github.com/HenryGetz/ompush/issues",
+  "keywords": [
+    "oh-my-pi",
+    "omp",
+    "extension",
+    "plugin",
+    "pushover",
+    "notifications"
+  ],
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
