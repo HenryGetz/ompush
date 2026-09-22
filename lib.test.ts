@@ -7,10 +7,15 @@ import {
   parseGitBranch,
   formatDetachedHead,
   formatContext,
+  formatElapsed,
+  formatTokens,
+  formatCost,
   truncateEnd,
   toolPreview,
   fingerprint,
   buildNotification,
+  turnStats,
+  lastErrorMessage,
   decideDone,
   decideBlocked,
   encodeForm,
@@ -184,22 +189,110 @@ describe("toolPreview", () => {
   });
 });
 
+describe("formatElapsed", () => {
+  test("minutes and seconds", () => {
+    expect(formatElapsed(252_000)).toBe("4m 12s");
+  });
+
+  test("seconds only below a minute", () => {
+    expect(formatElapsed(45_000)).toBe("45s");
+  });
+
+  test("hours and minutes drop the seconds", () => {
+    expect(formatElapsed(3_780_000)).toBe("1h 3m");
+  });
+
+  test("zero renders as 0s", () => {
+    expect(formatElapsed(0)).toBe("0s");
+  });
+
+  test("negative input clamps to 0s", () => {
+    expect(formatElapsed(-5_000)).toBe("0s");
+  });
+});
+
+describe("formatTokens", () => {
+  test("below a thousand stays plain", () => {
+    expect(formatTokens(999)).toBe("999");
+  });
+
+  test("thousands get a trimmed k suffix", () => {
+    expect(formatTokens(18_400)).toBe("18.4k");
+    expect(formatTokens(20_000)).toBe("20k");
+  });
+
+  test("millions get a trimmed M suffix", () => {
+    expect(formatTokens(1_240_000)).toBe("1.2M");
+  });
+});
+
+describe("formatCost", () => {
+  test("always two decimals with a dollar sign", () => {
+    expect(formatCost(0.04)).toBe("$0.04");
+    expect(formatCost(0)).toBe("$0.00");
+    expect(formatCost(1)).toBe("$1.00");
+  });
+});
+
 describe("buildNotification", () => {
   const CONTEXT = "Standalone · myproj · feature/x";
 
-  test("done notification carries elapsed and context", () => {
+  test("reference example is byte-exact", () => {
+    const n = buildNotification({
+      kind: "done",
+      project: "zachhudson",
+      contextLine: "Standalone · zachhudson · main",
+      lastText: "ran the suite",
+      elapsedMs: 252_000,
+      tokens: 18_400,
+      costUsd: 0.04,
+    });
+    expect(n.title).toBe("zachhudson · ✓4m 12s · 18.4k · $0.04");
+    expect(n.priority).toBe(0);
+    expect(n.sound).toBeUndefined();
+    expect(n.message.length).toBeLessThanOrEqual(MESSAGE_CAP);
+  });
+
+  test("done body is exactly the text plus context — no status prefix, no elapsed suffix", () => {
     const n = buildNotification({
       kind: "done",
       project: "myproj",
       lastText: "hello world",
-      elapsedMs: 65000,
+      elapsedMs: 65_000,
       contextLine: CONTEXT,
     });
-    expect(n.title).toBe(`[complete] myproj`);
-    expect(n.priority).toBe(0);
-    expect(n.sound).toBeUndefined();
-    expect(n.message).toBe(`hello world (elapsed: 1m 5s)\n\n${CONTEXT}`);
-    expect(n.message.length).toBeLessThanOrEqual(MESSAGE_CAP);
+    expect(n.message).toBe(`hello world\n\n${CONTEXT}`);
+  });
+
+  test("done with an error uses the cross icon and prefers the error message", () => {
+    const n = buildNotification({
+      kind: "done",
+      project: "myproj",
+      lastText: "hello world",
+      errorMessage: "it exploded",
+      elapsedMs: 65_000,
+      contextLine: CONTEXT,
+    });
+    expect(n.title).toBe("myproj · ❌1m 5s");
+    expect(n.message).toBe(`it exploded\n\n${CONTEXT}`);
+  });
+
+  test("done without usage shows only project, icon and elapsed", () => {
+    const n = buildNotification({
+      kind: "done",
+      project: "myproj",
+      lastText: "hello",
+      elapsedMs: 45_000,
+      contextLine: CONTEXT,
+    });
+    expect(n.title).toBe("myproj · ✓45s");
+    expect(n.message).toBe(`hello\n\n${CONTEXT}`);
+  });
+
+  test("done without text falls back to a generic body", () => {
+    const n = buildNotification({ kind: "done", project: "myproj", contextLine: CONTEXT });
+    expect(n.title).toBe("myproj · ✓");
+    expect(n.message).toBe(`Task completed\n\n${CONTEXT}`);
   });
 
   test("long last assistant text is cut at LAST_TEXT_CAP", () => {
@@ -237,15 +330,18 @@ describe("buildNotification", () => {
     expect(n.title.length).toBeLessThanOrEqual(250);
   });
 
-  test("blocked notification is urgent with siren and preview", () => {
+  test("blocked notification is urgent with siren, usage segments and preview", () => {
     const n = buildNotification({
       kind: "blocked",
       project: "myproj",
       toolName: "bash",
       preview: "rm -rf /tmp/x",
       contextLine: "Standalone · myproj",
+      elapsedMs: 125_000,
+      tokens: 6_100,
+      costUsd: 0.02,
     });
-    expect(n.title).toBe(`[blocked] myproj`);
+    expect(n.title).toBe("myproj · ⚠️2m 5s · 6.1k · $0.02");
     expect(n.priority).toBe(1);
     expect(n.sound).toBe("siren");
     expect(n.message).toBe("Needs approval: bash\nrm -rf /tmp/x\n\nStandalone · myproj");
@@ -274,6 +370,108 @@ describe("buildNotification", () => {
       contextLine: "Standalone · myproj",
     });
     expect(n.message).toBe("Needs approval: bash\n\nStandalone · myproj");
+  });
+});
+
+describe("turnStats", () => {
+  test("elapsed runs from the last user message; earlier assistants are ignored", () => {
+    const s = turnStats(
+      [
+        { role: "user", timestamp: 50_000 },
+        { role: "assistant", usage: { totalTokens: 9_999, cost: { total: 9.99 } } },
+        { role: "user", timestamp: 100_000 },
+        { role: "assistant", usage: { totalTokens: 18_400, cost: { total: 0.04 } } },
+      ],
+      352_000,
+    );
+    expect(s).toEqual({ elapsedMs: 252_000, tokens: 18_400, costUsd: 0.04 });
+  });
+
+  test("falls back to summing the usage fields when totals are missing", () => {
+    const s = turnStats(
+      [
+        { role: "user", timestamp: 0 },
+        {
+          role: "assistant",
+          usage: {
+            input: 1_000,
+            output: 200,
+            cacheRead: 30,
+            cacheWrite: 5,
+            cost: { input: 0.25, output: 0.125, cacheRead: 0.0625, cacheWrite: 0.0625 },
+          },
+        },
+      ],
+      1_000,
+    );
+    expect(s).toEqual({ elapsedMs: 1_000, tokens: 1_235, costUsd: 0.5 });
+  });
+
+  test("totals win over the summed fields", () => {
+    const s = turnStats(
+      [
+        { role: "user", timestamp: 5 },
+        { role: "assistant", usage: { totalTokens: 7, input: 100, cost: { total: 0.5, input: 9 } } },
+      ],
+      5,
+    );
+    expect(s).toEqual({ elapsedMs: 0, tokens: 7, costUsd: 0.5 });
+  });
+
+  test("usage sums across assistant entries of the turn", () => {
+    const s = turnStats(
+      [
+        { role: "user", timestamp: 10 },
+        { role: "assistant", usage: { totalTokens: 100, cost: { total: 0.25 } } },
+        { role: "assistant", usage: { totalTokens: 50, cost: { total: 0.125 } } },
+      ],
+      20,
+    );
+    expect(s).toEqual({ elapsedMs: 10, tokens: 150, costUsd: 0.375 });
+  });
+
+  test("no assistant usage omits the usage keys entirely", () => {
+    const s = turnStats([{ role: "user", timestamp: 1_000 }], 2_000);
+    expect(s).toEqual({ elapsedMs: 1_000 });
+    expect("tokens" in s).toBe(false);
+    expect("costUsd" in s).toBe(false);
+  });
+
+  test("no user message yields zero elapsed and still counts usage", () => {
+    const s = turnStats([{ role: "assistant", usage: { totalTokens: 10, cost: { total: 0.5 } } }], 99);
+    expect(s).toEqual({ elapsedMs: 0, tokens: 10, costUsd: 0.5 });
+  });
+
+  test("defensive over unknown shapes", () => {
+    expect(turnStats("nope" as unknown[], 100)).toEqual({ elapsedMs: 0 });
+    expect(turnStats([null, 42, { role: "assistant", usage: "x" }], 100)).toEqual({ elapsedMs: 0 });
+    expect(turnStats([], Number.NaN)).toEqual({ elapsedMs: 0 });
+  });
+});
+
+describe("lastErrorMessage", () => {
+  test("returns the most recent assistant error message", () => {
+    expect(
+      lastErrorMessage([
+        { role: "assistant", stopReason: "error", errorMessage: "first" },
+        { role: "assistant", stopReason: "error", errorMessage: "second" },
+      ]),
+    ).toBe("second");
+  });
+
+  test("ignores non-assistant entries, non-error stops and empty messages", () => {
+    expect(
+      lastErrorMessage([
+        { role: "user", stopReason: "error", errorMessage: "user noise" },
+        { role: "assistant", stopReason: "stop", errorMessage: "not an error" },
+        { role: "assistant", stopReason: "error", errorMessage: "" },
+      ]),
+    ).toBeUndefined();
+  });
+
+  test("undefined for empty or unknown shapes", () => {
+    expect(lastErrorMessage([])).toBeUndefined();
+    expect(lastErrorMessage("nope" as unknown[])).toBeUndefined();
   });
 });
 
@@ -420,6 +618,8 @@ describe("buildFormBody", () => {
       project: "myproj",
       lastText: "all good",
       elapsedMs: 65000,
+      tokens: 18_400,
+      costUsd: 0.04,
       contextLine: "Standalone · myproj",
     });
     const body = buildFormBody(creds, n);

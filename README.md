@@ -4,15 +4,21 @@ Pushover notifications for [oh-my-pi](https://github.com/can1357/oh-my-pi). Your
 finds out the moment your agent finishes a prompt or needs its hand held (a tool approval).
 Miracles.
 
-It fires exactly two kinds of push, and nothing else:
+It fires exactly two kinds of push, and nothing else — a prompt summary and an approval alarm:
 
 | Event | Title | Priority | Sound | Quiet hours |
 |---|---|---|---|---|
-| Prompt finished | `[complete] <project>` | 0 normal | device default | respected |
-| Tool approval needed | `[blocked] <project>` | 1 high | `siren` | bypassed |
+| Prompt finished | `zachhudson · ✓4m 12s · 18.4k · $0.04` | 0 normal | device default | respected |
+| Prompt failed | `myproj · ❌1m 5s · 3.2k · $0.01` | 0 normal | device default | respected |
+| Tool approval needed | `myproj · ⚠️2m 5s · 6.1k · $0.02` | 1 high | `siren` | bypassed |
 
-The message carries the last thing the agent said (truncated — Pushover is not a novel
-delivery service), how long you wasted (`elapsed: 12m 3s`), and where it happened:
+Title anatomy: `project · <status><elapsed> · tokens · cost`. The status icon is the whole
+status report — `✓` done, `❌` not done, `⚠️` it wants approval — and it lives in the title,
+so the body never wastes your time with "Done." boilerplate. Elapsed is glued to the icon
+(`✓4m 12s`), tokens are compact (`18.4k`), and cost is what the prompt actually burned.
+
+The message is the agent's actual words (truncated — Pushover is not a novel delivery
+service) plus where it happened:
 
 ```
 Herdr · ws w1 · pane w1:p3

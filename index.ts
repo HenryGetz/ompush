@@ -12,9 +12,11 @@ import {
   fingerprint,
   formatContext,
   formatDetachedHead,
+  lastErrorMessage,
   parseGitBranch,
   resolveCredentials,
   toolPreview,
+  turnStats,
   type Credentials,
   type Notification,
 } from "./lib";
@@ -33,10 +35,21 @@ type DispatchParts = {
   fingerprint: string;
   traceAction?: "sent" | "flush-shutdown";
   lastText?: string;
+  errorMessage?: string;
   elapsedMs?: number;
+  tokens?: number;
+  costUsd?: number;
   toolName?: string;
   reason?: string;
   preview?: string;
+};
+
+type HeldTurn = {
+  lastText: string;
+  errorMessage?: string;
+  elapsedMs?: number;
+  tokens?: number;
+  costUsd?: number;
 };
 
 const MODULE_DIR = path.dirname(new URL(import.meta.url).pathname);
@@ -55,7 +68,8 @@ const previewMap = new Map<string, string>();
 let lastSentDone: { fingerprint: string; at: number } | undefined;
 const sentBlocked: Array<{ fingerprint: string; at: number }> = [];
 let pendingHold = false;
-let pendingDone: { lastText: string; elapsedMs?: number } | undefined;
+let pendingDone: HeldTurn | undefined;
+let lastMessages: unknown[] = [];
 
 function trace(entry: {
   kind: string;
@@ -148,21 +162,6 @@ function lastAssistantText(messages: unknown): string {
     // fall through to default
   }
   return "";
-}
-
-function elapsedMsSinceFirstUser(messages: unknown): number | undefined {
-  try {
-    if (!Array.isArray(messages)) return undefined;
-    for (const m of messages) {
-      const msg = m as { role?: unknown; timestamp?: unknown } | null;
-      if (msg && msg.role === "user" && typeof msg.timestamp === "number" && Number.isFinite(msg.timestamp)) {
-        return Date.now() - msg.timestamp;
-      }
-    }
-  } catch {
-    // fall through to no elapsed
-  }
-  return undefined;
 }
 
 function rememberPreview(id: string, preview: string): void {
@@ -262,15 +261,21 @@ async function runDispatch(kind: "done" | "blocked", parts: DispatchParts, ctx: 
           project,
           contextLine,
           lastText: parts.lastText ?? "",
-          elapsedMs: parts.elapsedMs ?? null,
+          errorMessage: parts.errorMessage,
+          elapsedMs: parts.elapsedMs,
+          tokens: parts.tokens,
+          costUsd: parts.costUsd,
         })
       : buildNotification({
           kind: "blocked",
           project,
           contextLine,
           toolName: parts.toolName ?? "",
-          reason: parts.reason ?? null,
-          preview: parts.preview ?? null,
+          reason: parts.reason,
+          preview: parts.preview,
+          elapsedMs: parts.elapsedMs,
+          tokens: parts.tokens,
+          costUsd: parts.costUsd,
         });
   const body = buildFormBody(creds, n);
   const poUrl = process.env.PUSHOVER_API_BASE || "https://api.pushover.net/1/messages.json";
@@ -368,16 +373,20 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
         const crossSession = !!evSessionId && !!ownId && evSessionId !== ownId;
         const toolName = typeof event?.toolName === "string" ? event.toolName : "";
         const reason = typeof event?.reason === "string" ? event.reason : "";
+        const now = Date.now();
+        const stats = turnStats(lastMessages, now);
         const draft = buildNotification({
           kind: "blocked",
           project: path.basename(resolveCwd(ctx)),
           contextLine: "",
           toolName,
-          reason: reason || null,
-          preview: preview ?? null,
+          reason: reason || undefined,
+          preview: preview ?? undefined,
+          elapsedMs: stats.elapsedMs,
+          tokens: stats.tokens,
+          costUsd: stats.costUsd,
         });
         const fp = fingerprint(`${draft.title}\n${draft.message}`);
-        const now = Date.now();
         const last = sentBlocked.length > 0 ? sentBlocked[sentBlocked.length - 1] : undefined;
         const decision = decideBlocked({
           isTopLevel: top.ok,
@@ -391,7 +400,15 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
           while (sentBlocked.length > SENT_BLOCKED_CAP) sentBlocked.shift();
           dispatch(
             "blocked",
-            { fingerprint: fp, toolName, reason: reason || undefined, preview },
+            {
+              fingerprint: fp,
+              toolName,
+              reason: reason || undefined,
+              preview,
+              elapsedMs: stats.elapsedMs,
+              tokens: stats.tokens,
+              costUsd: stats.costUsd,
+            },
             ctx,
           );
         } else {
@@ -432,17 +449,25 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
         } catch {
           busyJobs += 1; // snapshot unavailable — hold rather than spam
         }
+        const msgs: unknown[] = Array.isArray(messages) ? messages : [];
         const lastText = lastAssistantText(messages);
-        const elapsedMs = elapsedMsSinceFirstUser(messages);
+        const now = Date.now();
+        const stats = turnStats(msgs, now);
+        const err = lastErrorMessage(msgs);
+        const turn: HeldTurn = {
+          lastText,
+          errorMessage: err,
+          elapsedMs: stats.elapsedMs,
+          tokens: stats.tokens,
+          costUsd: stats.costUsd,
+        };
         const draft = buildNotification({
           kind: "done",
           project: path.basename(resolveCwd(ctx)),
           contextLine: "",
-          lastText,
-          elapsedMs: elapsedMs ?? null,
+          ...turn,
         });
         const fp = fingerprint(`${draft.title}\n${draft.message}`);
-        const now = Date.now();
         const decision = decideDone({
           isTopLevel: top.ok,
           willContinue: false,
@@ -456,10 +481,12 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
           lastSentDone = { fingerprint: fp, at: now };
           pendingHold = false;
           pendingDone = undefined;
-          dispatch("done", { fingerprint: fp, lastText, elapsedMs }, ctx);
+          lastMessages = msgs;
+          dispatch("done", { fingerprint: fp, ...turn }, ctx);
         } else if (decision.action === "hold") {
           pendingHold = true;
-          pendingDone = { lastText, elapsedMs };
+          pendingDone = turn;
+          lastMessages = msgs;
           trace({ kind: "done", action: "hold", reason: decision.reason ?? "busy", fingerprint: fp });
         } else {
           const reasonCode =
@@ -481,22 +508,29 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
       try {
         if (!pendingHold) return;
         pendingHold = false;
-        const held = pendingDone ?? { lastText: "" };
+        const held: HeldTurn = pendingDone ?? { lastText: "" };
         pendingDone = undefined;
+        const stats = turnStats(lastMessages, Date.now());
+        const err = lastErrorMessage(lastMessages);
+        const turn: HeldTurn = {
+          lastText: held.lastText,
+          errorMessage: held.errorMessage ?? err,
+          elapsedMs: held.elapsedMs ?? stats.elapsedMs,
+          tokens: held.tokens ?? stats.tokens,
+          costUsd: held.costUsd ?? stats.costUsd,
+        };
         const draft = buildNotification({
           kind: "done",
           project: path.basename(resolveCwd(ctx)),
           contextLine: "",
-          lastText: held.lastText,
-          elapsedMs: held.elapsedMs ?? null,
+          ...turn,
         });
         dispatch(
           "done",
           {
             fingerprint: fingerprint(`${draft.title}\n${draft.message}`),
             traceAction: "flush-shutdown",
-            lastText: held.lastText,
-            elapsedMs: held.elapsedMs,
+            ...turn,
           },
           ctx,
         );

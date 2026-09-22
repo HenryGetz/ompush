@@ -28,10 +28,13 @@ export type NotificationInput = {
   project: string;
   contextLine: string;
   lastText?: string;
-  elapsedMs?: number | null;
-  toolName?: string | null;
-  reason?: string | null;
-  preview?: string | null;
+  errorMessage?: string;
+  toolName?: string;
+  reason?: string;
+  preview?: string;
+  elapsedMs?: number;
+  tokens?: number;
+  costUsd?: number;
 };
 
 export type Decision = { action: "send" | "hold" | "skip"; reason?: string };
@@ -251,18 +254,144 @@ export function fingerprint(text: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-function formatElapsedSuffix(elapsedMs: number): string {
-  const s = Math.floor(elapsedMs / 1000);
-  const minutes = Math.floor(s / 60);
-  return ` (elapsed: ${minutes}m ${s % 60}s)`;
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, typeof ms === "number" && Number.isFinite(ms) ? Math.floor(ms / 1000) : 0);
+  if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${s}s`;
+}
+
+/** toFixed(1) with the trailing zero and then the trailing dot stripped. */
+function trimDecimal(n: number): string {
+  let s = typeof n === "number" && Number.isFinite(n) ? n.toFixed(1) : "0.0";
+  if (s.endsWith("0")) s = s.slice(0, -1);
+  if (s.endsWith(".")) s = s.slice(0, -1);
+  return s;
+}
+
+export function formatTokens(n: number): string {
+  const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
+  if (v < 1000) return String(Math.round(v));
+  if (v < 1e6) return `${trimDecimal(v / 1000)}k`;
+  return `${trimDecimal(v / 1e6)}M`;
+}
+
+export function formatCost(n: number): string {
+  const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
+  return `$${v.toFixed(2)}`;
+}
+
+const USAGE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+
+function sumUsageFields(obj: Record<string, unknown>): { sum: number; any: boolean } {
+  let sum = 0;
+  let any = false;
+  for (const key of USAGE_KEYS) {
+    const v = obj[key];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      sum += v;
+      any = true;
+    }
+  }
+  return { sum, any };
+}
+
+export function turnStats(
+  messages: unknown[],
+  nowMs: number,
+): { elapsedMs: number; tokens?: number; costUsd?: number } {
+  const out: { elapsedMs: number; tokens?: number; costUsd?: number } = { elapsedMs: 0 };
+  try {
+    if (!Array.isArray(messages)) return out;
+    const now = typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : 0;
+    let start = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i] as { role?: unknown; timestamp?: unknown } | null;
+      if (m && m.role === "user" && typeof m.timestamp === "number" && Number.isFinite(m.timestamp)) {
+        out.elapsedMs = Math.max(0, now - m.timestamp);
+        start = i + 1;
+        break;
+      }
+    }
+    let tokens = 0;
+    let costUsd = 0;
+    let sawUsage = false;
+    for (let i = start; i < messages.length; i++) {
+      const m = messages[i] as { role?: unknown; usage?: unknown } | null;
+      if (!m || m.role !== "assistant") continue;
+      const u = m.usage as Record<string, unknown> | null | undefined;
+      if (!u || typeof u !== "object") continue;
+      const totalTokens = u.totalTokens;
+      if (typeof totalTokens === "number" && Number.isFinite(totalTokens)) {
+        tokens += totalTokens;
+        sawUsage = true;
+      } else {
+        const t = sumUsageFields(u);
+        if (t.any) {
+          tokens += t.sum;
+          sawUsage = true;
+        }
+      }
+      const cost = u.cost as Record<string, unknown> | null | undefined;
+      if (cost && typeof cost === "object") {
+        const total = cost.total;
+        if (typeof total === "number" && Number.isFinite(total)) {
+          costUsd += total;
+          sawUsage = true;
+        } else {
+          const c = sumUsageFields(cost);
+          if (c.any) {
+            costUsd += c.sum;
+            sawUsage = true;
+          }
+        }
+      }
+    }
+    if (sawUsage) {
+      out.tokens = tokens;
+      out.costUsd = costUsd;
+    }
+  } catch {
+    // defensive: never throws
+  }
+  return out;
+}
+
+export function lastErrorMessage(messages: unknown[]): string | undefined {
+  try {
+    if (!Array.isArray(messages)) return undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i] as { role?: unknown; stopReason?: unknown; errorMessage?: unknown } | null;
+      if (
+        m &&
+        m.role === "assistant" &&
+        m.stopReason === "error" &&
+        typeof m.errorMessage === "string" &&
+        m.errorMessage.length > 0
+      ) {
+        return m.errorMessage;
+      }
+    }
+  } catch {
+    // defensive: never throws
+  }
+  return undefined;
 }
 
 export function buildNotification(input: NotificationInput): Notification {
   const kind: "done" | "blocked" = input?.kind === "blocked" ? "blocked" : "done";
   const project = asText(input?.project);
   const contextLine = asText(input?.contextLine);
+  const errorMessage = asText(input?.errorMessage);
+  const icon = kind === "blocked" ? "⚠️" : errorMessage ? "❌" : "✓";
+  const elapsedMs = input?.elapsedMs;
+  const segments = [project, `${icon}${elapsedMs != null ? formatElapsed(elapsedMs) : ""}`];
+  const tokens = input?.tokens;
+  if (tokens != null) segments.push(formatTokens(tokens));
+  const costUsd = input?.costUsd;
+  if (costUsd != null) segments.push(formatCost(costUsd));
+  const title = truncateEnd(segments.join(" · "), TITLE_CAP);
   if (kind === "blocked") {
-    const title = truncateEnd(`[blocked] ${project}`, TITLE_CAP);
     const toolName = trimmed(input?.toolName) || "tool";
     const reason = asText(input?.reason);
     const preview = asText(input?.preview);
@@ -272,12 +401,8 @@ export function buildNotification(input: NotificationInput): Notification {
     message += `\n\n${contextLine}`;
     return { kind, title, message: truncateEnd(message, MESSAGE_CAP), priority: 1, sound: "siren" };
   }
-  const title = truncateEnd(`[complete] ${project}`, TITLE_CAP);
-  const lastText = asText(input?.lastText) || "Task completed";
-  const elapsedMs = input?.elapsedMs;
-  const suffix =
-    typeof elapsedMs === "number" && Number.isFinite(elapsedMs) ? formatElapsedSuffix(elapsedMs) : "";
-  const message = truncateEnd(`${truncateEnd(lastText, LAST_TEXT_CAP)}${suffix}\n\n${contextLine}`, MESSAGE_CAP);
+  const text = truncateEnd(errorMessage || asText(input?.lastText) || "Task completed", LAST_TEXT_CAP);
+  const message = truncateEnd(`${text}\n\n${contextLine}`, MESSAGE_CAP);
   return { kind, title, message, priority: 0 };
 }
 
