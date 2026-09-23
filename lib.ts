@@ -276,9 +276,16 @@ export function formatTokens(n: number): string {
   return `${trimDecimal(v / 1e6)}M`;
 }
 
+/** Cents with a `¢` unit; sub-cent burns keep precision (0.02¢) instead of collapsing to 0. */
 export function formatCost(n: number): string {
-  const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
-  return `$${v.toFixed(2)}`;
+  const v = typeof n === "number" && Number.isFinite(n) ? Math.max(0, n) : 0;
+  const cents = v * 100;
+  if (cents === 0) return "0¢";
+  if (cents >= 1) return `${trimDecimal(cents)}¢`;
+  let s = cents.toFixed(3);
+  while (s.endsWith("0")) s = s.slice(0, -1);
+  if (s.endsWith(".")) s = s.slice(0, -1);
+  return `${s}¢`;
 }
 
 const USAGE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;

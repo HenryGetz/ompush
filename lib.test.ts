@@ -227,10 +227,12 @@ describe("formatTokens", () => {
 });
 
 describe("formatCost", () => {
-  test("always two decimals with a dollar sign", () => {
-    expect(formatCost(0.04)).toBe("$0.04");
-    expect(formatCost(0)).toBe("$0.00");
-    expect(formatCost(1)).toBe("$1.00");
+  test("renders cents with the ¢ unit, including sub-cent burns", () => {
+    expect(formatCost(0.04)).toBe("4¢");
+    expect(formatCost(0)).toBe("0¢");
+    expect(formatCost(1)).toBe("100¢");
+    expect(formatCost(0.0002)).toBe("0.02¢");
+    expect(formatCost(0.4567)).toBe("45.7¢");
   });
 });
 
@@ -247,7 +249,7 @@ describe("buildNotification", () => {
       tokens: 18_400,
       costUsd: 0.04,
     });
-    expect(n.title).toBe("zachhudson · ✓4m 12s · 18.4k · $0.04");
+    expect(n.title).toBe("zachhudson · ✓4m 12s · 18.4k · 4¢");
     expect(n.priority).toBe(0);
     expect(n.sound).toBeUndefined();
     expect(n.message.length).toBeLessThanOrEqual(MESSAGE_CAP);
@@ -341,7 +343,7 @@ describe("buildNotification", () => {
       tokens: 6_100,
       costUsd: 0.02,
     });
-    expect(n.title).toBe("myproj · ⚠️2m 5s · 6.1k · $0.02");
+    expect(n.title).toBe("myproj · ⚠️2m 5s · 6.1k · 2¢");
     expect(n.priority).toBe(1);
     expect(n.sound).toBe("siren");
     expect(n.message).toBe("Needs approval: bash\nrm -rf /tmp/x\n\nStandalone · myproj");

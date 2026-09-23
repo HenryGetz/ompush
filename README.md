@@ -8,14 +8,15 @@ It fires exactly two kinds of push, and nothing else — a prompt summary and an
 
 | Event | Title | Priority | Sound | Quiet hours |
 |---|---|---|---|---|
-| Prompt finished | `zachhudson · ✓4m 12s · 18.4k · $0.04` | 0 normal | device default | respected |
-| Prompt failed | `myproj · ❌1m 5s · 3.2k · $0.01` | 0 normal | device default | respected |
-| Tool approval needed | `myproj · ⚠️2m 5s · 6.1k · $0.02` | 1 high | `siren` | bypassed |
+| Prompt finished | `zachhudson · ✓4m 12s · 18.4k · 4¢` | 0 normal | device default | respected |
+| Prompt failed | `myproj · ❌1m 5s · 3.2k · 1¢` | 0 normal | device default | respected |
+| Tool approval needed | `myproj · ⚠️2m 5s · 6.1k · 2¢` | 1 high | `siren` | bypassed |
 
 Title anatomy: `project · <status><elapsed> · tokens · cost`. The status icon is the whole
 status report — `✓` done, `❌` not done, `⚠️` it wants approval — and it lives in the title,
 so the body never wastes your time with "Done." boilerplate. Elapsed is glued to the icon
-(`✓4m 12s`), tokens are compact (`18.4k`), and cost is what the prompt actually burned.
+(`✓4m 12s`), tokens are compact (`18.4k`), and cost is in cents (`4¢`) — sub-cent burns show
+`0.02¢` instead of a useless `$0.00`.
 
 The message is the agent's actual words (truncated — Pushover is not a novel delivery
 service) plus where it happened:
