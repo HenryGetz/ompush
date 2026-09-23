@@ -227,12 +227,15 @@ describe("formatTokens", () => {
 });
 
 describe("formatCost", () => {
-  test("renders cents with the ¢ unit, including sub-cent burns", () => {
+  test("cents below a dollar, dollars above, dollars as fallback", () => {
     expect(formatCost(0.04)).toBe("4¢");
     expect(formatCost(0)).toBe("0¢");
-    expect(formatCost(1)).toBe("100¢");
     expect(formatCost(0.0002)).toBe("0.02¢");
     expect(formatCost(0.4567)).toBe("45.7¢");
+    expect(formatCost(0.999)).toBe("99.9¢");
+    expect(formatCost(1)).toBe("$1.00");
+    expect(formatCost(12.5)).toBe("$12.50");
+    expect(formatCost(0.9999)).toBe("$1.00");
   });
 });
 

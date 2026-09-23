@@ -276,12 +276,16 @@ export function formatTokens(n: number): string {
   return `${trimDecimal(v / 1e6)}M`;
 }
 
-/** Cents with a `¢` unit; sub-cent burns keep precision (0.02¢) instead of collapsing to 0. */
+/** Cents below a dollar (`4¢`, `0.02¢`), dollars at a dollar and up (`$12.50`); dollars is the fallback. */
 export function formatCost(n: number): string {
   const v = typeof n === "number" && Number.isFinite(n) ? Math.max(0, n) : 0;
+  if (v >= 1) return `$${v.toFixed(2)}`;
   const cents = v * 100;
   if (cents === 0) return "0¢";
-  if (cents >= 1) return `${trimDecimal(cents)}¢`;
+  if (cents >= 1) {
+    const shown = trimDecimal(cents);
+    return Number(shown) >= 100 ? `$${v.toFixed(2)}` : `${shown}¢`;
+  }
   let s = cents.toFixed(3);
   while (s.endsWith("0")) s = s.slice(0, -1);
   if (s.endsWith(".")) s = s.slice(0, -1);
