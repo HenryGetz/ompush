@@ -237,6 +237,14 @@ describe("formatCost", () => {
     expect(formatCost(12.5)).toBe("$12.50");
     expect(formatCost(0.9999)).toBe("$1.00");
   });
+
+  test("prepends ⓠ when spending quota/subscription", () => {
+    expect(formatCost(0.00614, true)).toBe("ⓠ0.61¢");
+    expect(formatCost(0.04, true)).toBe("ⓠ4¢");
+    expect(formatCost(0, true)).toBe("ⓠ0¢");
+    expect(formatCost(0.0002, true)).toBe("ⓠ0.02¢");
+    expect(formatCost(1.25, true)).toBe("ⓠ$1.25");
+  });
 });
 
 describe("buildNotification", () => {
@@ -256,6 +264,19 @@ describe("buildNotification", () => {
     expect(n.priority).toBe(0);
     expect(n.sound).toBeUndefined();
     expect(n.message.length).toBeLessThanOrEqual(MESSAGE_CAP);
+  });
+  test("done notification with quota cost carries ⓠ prefix", () => {
+    const n = buildNotification({
+      kind: "done",
+      project: "zachhudson",
+      contextLine: "Standalone · zachhudson · main",
+      lastText: "done",
+      elapsedMs: 252_000,
+      tokens: 18_400,
+      costUsd: 0.00614,
+      isQuota: true,
+    });
+    expect(n.title).toBe("zachhudson · ✓4m 12s · 18.4k · ⓠ0.61¢");
   });
 
   test("done body is exactly the text plus context — no status prefix, no elapsed suffix", () => {
@@ -440,6 +461,17 @@ describe("turnStats", () => {
     expect(s).toEqual({ elapsedMs: 1_000 });
     expect("tokens" in s).toBe(false);
     expect("costUsd" in s).toBe(false);
+  });
+
+  test("extracts provider from assistant message", () => {
+    const s = turnStats(
+      [
+        { role: "user", timestamp: 10 },
+        { role: "assistant", provider: "google-gemini-cli", usage: { totalTokens: 100, cost: { total: 0.25 } } },
+      ],
+      20,
+    );
+    expect(s.provider).toBe("google-gemini-cli");
   });
 
   test("no user message yields zero elapsed and still counts usage", () => {

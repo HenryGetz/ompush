@@ -35,6 +35,7 @@ export type NotificationInput = {
   elapsedMs?: number;
   tokens?: number;
   costUsd?: number;
+  isQuota?: boolean;
 };
 
 export type Decision = { action: "send" | "hold" | "skip"; reason?: string };
@@ -276,20 +277,23 @@ export function formatTokens(n: number): string {
   return `${trimDecimal(v / 1e6)}M`;
 }
 
-/** Cents below a dollar (`4¢`, `0.02¢`), dollars at a dollar and up (`$12.50`); dollars is the fallback. */
-export function formatCost(n: number): string {
+/** Cents below a dollar (`4¢`, `0.02¢`), dollars at a dollar and up (`$12.50`); dollars is the fallback.
+ * Prepends `ⓠ` when spending subscription/quota instead of real money (`ⓠ0.61¢`, `ⓠ$1.25`).
+ */
+export function formatCost(n: number, isQuota?: boolean): string {
   const v = typeof n === "number" && Number.isFinite(n) ? Math.max(0, n) : 0;
-  if (v >= 1) return `$${v.toFixed(2)}`;
+  const prefix = isQuota === true ? "ⓠ" : "";
+  if (v >= 1) return `${prefix}$${v.toFixed(2)}`;
   const cents = v * 100;
-  if (cents === 0) return "0¢";
+  if (cents === 0) return `${prefix}0¢`;
   if (cents >= 1) {
     const shown = trimDecimal(cents);
-    return Number(shown) >= 100 ? `$${v.toFixed(2)}` : `${shown}¢`;
+    return Number(shown) >= 100 ? `${prefix}$${v.toFixed(2)}` : `${prefix}${shown}¢`;
   }
-  let s = cents.toFixed(3);
+  let s = cents >= 0.01 ? cents.toFixed(2) : cents.toFixed(3);
   while (s.endsWith("0")) s = s.slice(0, -1);
   if (s.endsWith(".")) s = s.slice(0, -1);
-  return `${s}¢`;
+  return `${prefix}${s}¢`;
 }
 
 const USAGE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
@@ -310,8 +314,8 @@ function sumUsageFields(obj: Record<string, unknown>): { sum: number; any: boole
 export function turnStats(
   messages: unknown[],
   nowMs: number,
-): { elapsedMs: number; tokens?: number; costUsd?: number } {
-  const out: { elapsedMs: number; tokens?: number; costUsd?: number } = { elapsedMs: 0 };
+): { elapsedMs: number; tokens?: number; costUsd?: number; provider?: string } {
+  const out: { elapsedMs: number; tokens?: number; costUsd?: number; provider?: string } = { elapsedMs: 0 };
   try {
     if (!Array.isArray(messages)) return out;
     const now = typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : 0;
@@ -327,9 +331,13 @@ export function turnStats(
     let tokens = 0;
     let costUsd = 0;
     let sawUsage = false;
+    let provider: string | undefined;
     for (let i = start; i < messages.length; i++) {
-      const m = messages[i] as { role?: unknown; usage?: unknown } | null;
+      const m = messages[i] as { role?: unknown; usage?: unknown; provider?: unknown } | null;
       if (!m || m.role !== "assistant") continue;
+      if (typeof m.provider === "string" && m.provider.length > 0) {
+        provider = m.provider;
+      }
       const u = m.usage as Record<string, unknown> | null | undefined;
       if (!u || typeof u !== "object") continue;
       const totalTokens = u.totalTokens;
@@ -361,6 +369,9 @@ export function turnStats(
     if (sawUsage) {
       out.tokens = tokens;
       out.costUsd = costUsd;
+    }
+    if (provider) {
+      out.provider = provider;
     }
   } catch {
     // defensive: never throws
@@ -400,7 +411,7 @@ export function buildNotification(input: NotificationInput): Notification {
   const tokens = input?.tokens;
   if (tokens != null) segments.push(formatTokens(tokens));
   const costUsd = input?.costUsd;
-  if (costUsd != null) segments.push(formatCost(costUsd));
+  if (costUsd != null) segments.push(formatCost(costUsd, input?.isQuota));
   const title = truncateEnd(segments.join(" · "), TITLE_CAP);
   if (kind === "blocked") {
     const toolName = trimmed(input?.toolName) || "tool";

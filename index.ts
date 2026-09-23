@@ -39,6 +39,7 @@ type DispatchParts = {
   elapsedMs?: number;
   tokens?: number;
   costUsd?: number;
+  isQuota?: boolean;
   toolName?: string;
   reason?: string;
   preview?: string;
@@ -50,6 +51,7 @@ type HeldTurn = {
   elapsedMs?: number;
   tokens?: number;
   costUsd?: number;
+  isQuota?: boolean;
 };
 
 const MODULE_DIR = path.dirname(new URL(import.meta.url).pathname);
@@ -131,6 +133,38 @@ function resolveCwd(ctx: CtxLike): string {
     // fall through
   }
   return process.cwd();
+}
+function isQuotaSession(ctx: CtxLike, provider?: string): boolean {
+  try {
+    const reg = (ctx as Record<string, unknown> | null | undefined)?.modelRegistry as
+      | { isUsingOAuth?: (m: unknown) => boolean; authStorage?: { hasOAuth?: (p: string) => boolean } }
+      | undefined;
+    const model =
+      (ctx as Record<string, unknown> | null | undefined)?.model ??
+      ((ctx as Record<string, unknown> | null | undefined)?.models as { current?: () => unknown } | undefined)?.current?.();
+
+    if (model && typeof reg?.isUsingOAuth === "function" && reg.isUsingOAuth(model)) {
+      return true;
+    }
+    const modelProvider = (model as { provider?: unknown } | null | undefined)?.provider;
+    if (
+      typeof modelProvider === "string" &&
+      typeof reg?.authStorage?.hasOAuth === "function" &&
+      reg.authStorage.hasOAuth(modelProvider)
+    ) {
+      return true;
+    }
+    if (
+      typeof provider === "string" &&
+      typeof reg?.authStorage?.hasOAuth === "function" &&
+      reg.authStorage.hasOAuth(provider)
+    ) {
+      return true;
+    }
+  } catch {
+    // fail-open: quota detection errors must never break notifications
+  }
+  return false;
 }
 
 function countUndelivered(delivery: unknown): number {
@@ -265,6 +299,7 @@ async function runDispatch(kind: "done" | "blocked", parts: DispatchParts, ctx: 
           elapsedMs: parts.elapsedMs,
           tokens: parts.tokens,
           costUsd: parts.costUsd,
+          isQuota: parts.isQuota,
         })
       : buildNotification({
           kind: "blocked",
@@ -276,6 +311,7 @@ async function runDispatch(kind: "done" | "blocked", parts: DispatchParts, ctx: 
           elapsedMs: parts.elapsedMs,
           tokens: parts.tokens,
           costUsd: parts.costUsd,
+          isQuota: parts.isQuota,
         });
   const body = buildFormBody(creds, n);
   const poUrl = process.env.PUSHOVER_API_BASE || "https://api.pushover.net/1/messages.json";
@@ -375,6 +411,7 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
         const reason = typeof event?.reason === "string" ? event.reason : "";
         const now = Date.now();
         const stats = turnStats(lastMessages, now);
+        const isQuota = isQuotaSession(ctx, stats.provider);
         const draft = buildNotification({
           kind: "blocked",
           project: path.basename(resolveCwd(ctx)),
@@ -385,6 +422,7 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
           elapsedMs: stats.elapsedMs,
           tokens: stats.tokens,
           costUsd: stats.costUsd,
+          isQuota,
         });
         const fp = fingerprint(`${draft.title}\n${draft.message}`);
         const last = sentBlocked.length > 0 ? sentBlocked[sentBlocked.length - 1] : undefined;
@@ -408,8 +446,8 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
               elapsedMs: stats.elapsedMs,
               tokens: stats.tokens,
               costUsd: stats.costUsd,
+              isQuota,
             },
-            ctx,
           );
         } else {
           const reasonCode =
@@ -454,12 +492,14 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
         const now = Date.now();
         const stats = turnStats(msgs, now);
         const err = lastErrorMessage(msgs);
+        const isQuota = isQuotaSession(ctx, stats.provider);
         const turn: HeldTurn = {
           lastText,
           errorMessage: err,
           elapsedMs: stats.elapsedMs,
           tokens: stats.tokens,
           costUsd: stats.costUsd,
+          isQuota,
         };
         const draft = buildNotification({
           kind: "done",
@@ -518,6 +558,7 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
           elapsedMs: held.elapsedMs ?? stats.elapsedMs,
           tokens: held.tokens ?? stats.tokens,
           costUsd: held.costUsd ?? stats.costUsd,
+          isQuota: held.isQuota ?? isQuotaSession(ctx, stats.provider),
         };
         const draft = buildNotification({
           kind: "done",
