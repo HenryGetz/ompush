@@ -1,7 +1,7 @@
 {
   "name": "ompush",
-  "version": "1.4.0",
-  "description": "Pushover notifications for oh-my-pi: one push when a prompt finishes, one siren when a tool needs approval. Zero subagent spam.",
+  "version": "1.5.0",
+  "description": "Pushover notifications for oh-my-pi: one push when a prompt finishes, one siren when blocked on a question or tool approval. Zero subagent spam.",
   "type": "module",
   "license": "MIT",
   "author": "Henry Getz",

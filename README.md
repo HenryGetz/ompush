@@ -1,7 +1,7 @@
 # ompush
 
 Pushover notifications for [oh-my-pi](https://github.com/can1357/oh-my-pi). Your phone now
-finds out the moment your agent finishes a prompt or needs its hand held (a tool approval).
+finds out the moment your agent finishes a prompt or needs your input (blocked on a question or tool approval).
 Miracles.
 
 It fires exactly two kinds of push, and nothing else — a prompt summary and an approval alarm:
@@ -11,10 +11,11 @@ It fires exactly two kinds of push, and nothing else — a prompt summary and an
 | Prompt finished | `zachhudson · ✓4m 12s · 18.4k · 4¢` | 0 normal | device default | respected |
 | Prompt finished (quota) | `zachhudson · ✓4m 12s · 18.4k · ⓠ0.61¢` | 0 normal | device default | respected |
 | Prompt failed | `myproj · ❌1m 5s · 3.2k · 1¢` | 0 normal | device default | respected |
+| Question asked (`ask`) | `myproj · ⚠️2m 5s · 6.1k · 2¢` | 1 high | `siren` | bypassed |
 | Tool approval needed | `myproj · ⚠️2m 5s · 6.1k · 2¢` | 1 high | `siren` | bypassed |
 
 Title anatomy: `project · <status><elapsed> · tokens · cost`. The status icon is the whole
-status report — `✓` done, `❌` not done, `⚠️` it wants approval — and it lives in the title,
+status report — `✓` done, `❌` not done, `⚠️` blocked on a question or approval — and it lives in the title,
 so the body never wastes your time with "Done." boilerplate. Elapsed is glued to the icon
 (`✓4m 12s`), tokens are compact (`18.4k`), and cost picks the unit that makes sense: cents
 below a dollar (`4¢`, sub-cent burns keep precision as `0.02¢` instead of a useless `$0.00`),

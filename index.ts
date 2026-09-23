@@ -464,6 +464,77 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
   } catch {
     // registration failure must not kill load
   }
+  try {
+    pi.on("tool_execution_start", (event, ctx) => {
+      try {
+        if (event?.toolName !== "ask") {
+          return;
+        }
+        const top = isTopLevelSession(ctx);
+        if (!top.ok) {
+          trace({
+            kind: "blocked",
+            action: "skip",
+            reason: `subagent-or-nested:${top.reason ?? "unknown"}`,
+          });
+          return;
+        }
+        const callId = typeof event?.toolCallId === "string" ? event.toolCallId : "";
+        const preview = (callId && previewMap.get(callId)) || toolPreview(event?.args);
+        const reason =
+          typeof event?.intent === "string" && event.intent.length > 0 ? event.intent : undefined;
+        const now = Date.now();
+        const stats = turnStats(lastMessages, now);
+        const isQuota = isQuotaSession(ctx, stats.provider);
+        const draft = buildNotification({
+          kind: "blocked",
+          project: path.basename(resolveCwd(ctx)),
+          contextLine: "",
+          toolName: "ask",
+          reason,
+          preview,
+          elapsedMs: stats.elapsedMs,
+          tokens: stats.tokens,
+          costUsd: stats.costUsd,
+          isQuota,
+        });
+        const fp = fingerprint(`${draft.title}\n${draft.message}`);
+        const last = sentBlocked.length > 0 ? sentBlocked[sentBlocked.length - 1] : undefined;
+        const decision = decideBlocked({
+          isTopLevel: top.ok,
+          crossSession: false,
+          fingerprint: fp,
+          lastBlocked: last ? { fingerprint: last.fingerprint, atMs: last.at } : null,
+          nowMs: now,
+        });
+        if (decision.action === "send") {
+          sentBlocked.push({ fingerprint: fp, at: now });
+          while (sentBlocked.length > SENT_BLOCKED_CAP) sentBlocked.shift();
+          dispatch(
+            "blocked",
+            {
+              fingerprint: fp,
+              toolName: "ask",
+              reason,
+              preview,
+              elapsedMs: stats.elapsedMs,
+              tokens: stats.tokens,
+              costUsd: stats.costUsd,
+              isQuota,
+            },
+            ctx,
+          );
+        } else {
+          trace({ kind: "blocked", action: "skip", reason: decision.reason, fingerprint: fp });
+        }
+        if (callId) previewMap.delete(callId);
+      } catch {
+        // ask tool_execution_start must never throw
+      }
+    });
+  } catch {
+    // registration failure must not kill load
+  }
 
   try {
     pi.on("agent_end", (event, ctx) => {

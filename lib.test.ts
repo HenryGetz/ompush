@@ -187,6 +187,21 @@ describe("toolPreview", () => {
     expect(toolPreview(42)).toBe("unknown input");
     expect(toolPreview({})).toBe("unknown input");
   });
+  test("renders question text and options when input is from ask tool", () => {
+    const input = {
+      questions: [
+        {
+          question: "Which authentication method?",
+          options: [{ label: "JWT" }, { label: "OAuth2" }, { label: "Session cookies" }],
+        },
+      ],
+    };
+    expect(toolPreview(input)).toBe("Which authentication method?\n[JWT | OAuth2 | Session cookies]");
+  });
+
+  test("renders simple question string input", () => {
+    expect(toolPreview({ question: "Continue with migration?" })).toBe("Continue with migration?");
+  });
 });
 
 describe("formatElapsed", () => {
@@ -396,6 +411,18 @@ describe("buildNotification", () => {
       contextLine: "Standalone · myproj",
     });
     expect(n.message).toBe("Needs approval: bash\n\nStandalone · myproj");
+  });
+  test("blocked notification for ask tool uses Question from agent heading", () => {
+    const n = buildNotification({
+      kind: "blocked",
+      project: "myproj",
+      toolName: "ask",
+      preview: "Which database?\n[PostgreSQL | SQLite]",
+      contextLine: "Standalone · myproj",
+    });
+    expect(n.message).toBe("Question from agent:\nWhich database?\n[PostgreSQL | SQLite]\n\nStandalone · myproj");
+    expect(n.priority).toBe(1);
+    expect(n.sound).toBe("siren");
   });
 });
 

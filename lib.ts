@@ -215,11 +215,41 @@ export function toolPreview(input: unknown): string {
   let raw: string | undefined;
   if (input !== null && typeof input === "object") {
     const obj = input as Record<string, unknown>;
-    for (const key of ["command", "path", "pattern", "task"]) {
-      const value = obj[key];
-      if (typeof value === "string" && value.length > 0) {
-        raw = value;
-        break;
+    if (Array.isArray(obj.questions)) {
+      const first = obj.questions.find((item: unknown) => {
+        if (item && typeof item === "object") {
+          return typeof (item as Record<string, unknown>).question === "string";
+        }
+        return false;
+      }) as Record<string, unknown> | undefined;
+      if (first && typeof first.question === "string") {
+        let q = first.question;
+        if (Array.isArray(first.options) && first.options.length > 0) {
+          const opts = first.options
+            .map((o: unknown) => {
+              if (typeof o === "string") return o;
+              if (o && typeof o === "object") return (o as Record<string, unknown>).label;
+              return undefined;
+            })
+            .filter((l: unknown): l is string => typeof l === "string" && l.length > 0)
+            .slice(0, 5)
+            .join(" | ");
+          if (opts.length > 0) {
+            q += `\n[${opts}]`;
+          }
+        }
+        raw = q;
+      }
+    } else if (typeof obj.question === "string" && obj.question.length > 0) {
+      raw = obj.question;
+    }
+    if (raw === undefined) {
+      for (const key of ["command", "path", "pattern", "task"]) {
+        const value = obj[key];
+        if (typeof value === "string" && value.length > 0) {
+          raw = value;
+          break;
+        }
       }
     }
     if (raw === undefined) {
@@ -417,7 +447,8 @@ export function buildNotification(input: NotificationInput): Notification {
     const toolName = trimmed(input?.toolName) || "tool";
     const reason = asText(input?.reason);
     const preview = asText(input?.preview);
-    let message = `Needs approval: ${toolName}`;
+    const heading = toolName === "ask" ? "Question from agent:" : `Needs approval: ${toolName}`;
+    let message = heading;
     if (reason) message += `\n${reason}`;
     if (preview) message += `\n${preview}`;
     message += `\n\n${contextLine}`;
