@@ -11,7 +11,7 @@ It fires exactly two kinds of push, and nothing else — a prompt summary and an
 | Prompt finished | `zachhudson · ✓4m 12s · 18.4k · 4¢` | 0 normal | device default | respected |
 | Prompt finished (quota) | `zachhudson · ✓4m 12s · 18.4k · ⓠ0.61¢` | 0 normal | device default | respected |
 | Prompt failed | `myproj · ❌1m 5s · 3.2k · 1¢` | 0 normal | device default | respected |
-| Question asked (`ask`) | `myproj · ⚠️2m 5s · 6.1k · 2¢` | 1 high | `siren` | bypassed |
+| Question asked (`ask`) | `zachhudson · 💬 Database preference` | 1 high | `siren` | bypassed |
 | Tool approval needed | `myproj · ⚠️2m 5s · 6.1k · 2¢` | 1 high | `siren` | bypassed |
 
 Title anatomy: `project · <status><elapsed> · tokens · cost`. The status icon is the whole
@@ -29,6 +29,23 @@ service) plus where it happened:
 ```
 Herdr · ws w1 · pane w1:p3
 Standalone · myproj · feature/x
+```
+
+When the agent asks a question (`ask` tool), the decision topic is promoted directly into the
+title next to `💬` so you immediately know what decision is blocking the agent on your Apple Watch
+or lock screen:
+
+```text
+zachhudson · 💬 Database preference
+Which database do you prefer?
+› PostgreSQL  ·  SQLite
+```
+
+And for a question without choices (free-form text input):
+
+```text
+librequote · 💬 Target output format
+Should the generated quote include the B-rep surface breakdown?
 ```
 
 Works in plain terminals and inside Herdr panes. Subagents, advisors, and nested `omp` runs

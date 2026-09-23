@@ -32,6 +32,9 @@ export type NotificationInput = {
   toolName?: string;
   reason?: string;
   preview?: string;
+  topic?: string;
+  question?: string;
+  options?: unknown[];
   elapsedMs?: number;
   tokens?: number;
   costUsd?: number;
@@ -211,37 +214,153 @@ export function truncateEnd(text: string, max: number): string {
   return s.slice(0, m);
 }
 
-export function toolPreview(input: unknown): string {
-  let raw: string | undefined;
+function cleanIntent(intent: string): string {
+  let s = intent.trim();
+  s = s.replace(/^(asking|ask)\s+(?:the\s+)?(?:user\s+)?(?:for\s+|about\s+|to\s+)?/i, "");
+  s = s.replace(/[.:;!]+$/, "").trim();
+  if (s.length === 0) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function formatQuestionId(id: string): string {
+  let s = id.trim().replace(/[_-]+/g, " ").trim();
+  if (s.length === 0) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function cleanTopic(header: string): string {
+  let s = header.trim().replace(/[.:;!]+$/, "").trim();
+  if (s.length === 0) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export function extractQuestionTopic(input: {
+  intent?: string;
+  header?: string;
+  id?: string;
+  question?: string;
+}): string {
+  if (typeof input.header === "string" && input.header.trim().length > 0) {
+    const c = cleanTopic(input.header);
+    if (c.length > 0) return c;
+  }
+  if (typeof input.intent === "string" && input.intent.trim().length > 0) {
+    const c = cleanIntent(input.intent);
+    if (c.length > 0) return c;
+  }
+  if (typeof input.id === "string" && input.id.trim().length > 0) {
+    const c = formatQuestionId(input.id);
+    if (c.length > 0) return c;
+  }
+  if (typeof input.question === "string" && input.question.trim().length > 0) {
+    const firstSentence = input.question.trim().split(/[?.!\n]/)[0].trim();
+    if (firstSentence.length > 0 && firstSentence.length <= 40) {
+      return firstSentence.charAt(0).toUpperCase() + firstSentence.slice(1);
+    }
+  }
+  return "Question";
+}
+
+export function formatQuestionOptions(options: unknown[]): string | undefined {
+  if (!Array.isArray(options) || options.length === 0) return undefined;
+  const labels: string[] = [];
+  for (const opt of options) {
+    const raw =
+      typeof opt === "string"
+        ? opt
+        : opt && typeof opt === "object" && typeof (opt as Record<string, unknown>).label === "string"
+          ? String((opt as Record<string, unknown>).label)
+          : "";
+    const label = raw.trim();
+    if (
+      label.length > 0 &&
+      !/^other\b/i.test(label) &&
+      label !== "Chat about this" &&
+      label !== "Next →"
+    ) {
+      labels.push(label);
+    }
+  }
+  if (labels.length === 0) return undefined;
+  return `› ${labels.join("  ·  ")}`;
+}
+
+export function parseAskInput(input: unknown): {
+  topic: string;
+  question: string;
+  options: string[];
+} {
+  let topic = "";
+  let question = "";
+  const options: string[] = [];
+
   if (input !== null && typeof input === "object") {
     const obj = input as Record<string, unknown>;
-    if (Array.isArray(obj.questions)) {
+    const intent = typeof obj.intent === "string" ? obj.intent : undefined;
+
+    if (Array.isArray(obj.questions) && obj.questions.length > 0) {
       const first = obj.questions.find((item: unknown) => {
         if (item && typeof item === "object") {
           return typeof (item as Record<string, unknown>).question === "string";
         }
         return false;
       }) as Record<string, unknown> | undefined;
-      if (first && typeof first.question === "string") {
-        let q = first.question;
-        if (Array.isArray(first.options) && first.options.length > 0) {
-          const opts = first.options
-            .map((o: unknown) => {
-              if (typeof o === "string") return o;
-              if (o && typeof o === "object") return (o as Record<string, unknown>).label;
-              return undefined;
-            })
-            .filter((l: unknown): l is string => typeof l === "string" && l.length > 0)
-            .slice(0, 5)
-            .join(" | ");
-          if (opts.length > 0) {
-            q += `\n[${opts}]`;
+
+      if (first) {
+        question = asText(first.question).trim();
+        topic = extractQuestionTopic({
+          intent,
+          header: asText(first.header),
+          id: asText(first.id),
+          question,
+        });
+        if (Array.isArray(first.options)) {
+          for (const opt of first.options) {
+            const label =
+              typeof opt === "string"
+                ? opt
+                : opt && typeof opt === "object" && typeof (opt as Record<string, unknown>).label === "string"
+                  ? String((opt as Record<string, unknown>).label)
+                  : "";
+            if (label.trim().length > 0) options.push(label.trim());
           }
         }
-        raw = q;
       }
-    } else if (typeof obj.question === "string" && obj.question.length > 0) {
-      raw = obj.question;
+    } else if (typeof obj.question === "string" && obj.question.trim().length > 0) {
+      question = obj.question.trim();
+      topic = extractQuestionTopic({
+        intent,
+        header: asText(obj.header),
+        id: asText(obj.id),
+        question,
+      });
+      if (Array.isArray(obj.options)) {
+        for (const opt of obj.options) {
+          const label =
+            typeof opt === "string"
+              ? opt
+              : opt && typeof opt === "object" && typeof (opt as Record<string, unknown>).label === "string"
+                ? String((opt as Record<string, unknown>).label)
+                : "";
+          if (label.trim().length > 0) options.push(label.trim());
+        }
+      }
+    }
+  }
+
+  if (topic.length === 0) topic = "Question";
+  return { topic, question, options };
+}
+export function toolPreview(input: unknown): string {
+  let raw: string | undefined;
+  if (input !== null && typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    if (Array.isArray(obj.questions) || typeof obj.question === "string") {
+      const ask = parseAskInput(obj);
+      if (ask.question.length > 0) {
+        const optLine = formatQuestionOptions(ask.options);
+        raw = optLine ? `${ask.question}\n${optLine}` : ask.question;
+      }
     }
     if (raw === undefined) {
       for (const key of ["command", "path", "pattern", "task"]) {
@@ -445,10 +564,36 @@ export function buildNotification(input: NotificationInput): Notification {
   const title = truncateEnd(segments.join(" · "), TITLE_CAP);
   if (kind === "blocked") {
     const toolName = trimmed(input?.toolName) || "tool";
+    if (toolName === "ask") {
+      const topic = trimmed(input?.topic) || "Question";
+      const title = truncateEnd(`${project} · 💬 ${topic}`, TITLE_CAP);
+      let bodyText = "";
+      if (typeof input?.question === "string" && input.question.trim().length > 0) {
+        bodyText = input.question.trim();
+        const optLine = formatQuestionOptions((input?.options as unknown[]) ?? []);
+        if (optLine) bodyText += `\n${optLine}`;
+      } else if (input?.preview) {
+        bodyText = asText(input.preview);
+      } else {
+        bodyText = "Waiting for your answer";
+      }
+      const message = contextLine ? `${bodyText}\n\n${contextLine}` : bodyText;
+      return {
+        kind,
+        title,
+        message: truncateEnd(message, MESSAGE_CAP),
+        priority: 1,
+        sound: "siren",
+      };
+    }
     const reason = asText(input?.reason);
     const preview = asText(input?.preview);
-    const heading = toolName === "ask" ? "Question from agent:" : `Needs approval: ${toolName}`;
-    let message = heading;
+    const elapsedMs = input?.elapsedMs;
+    const segments = [project, `⚠️${elapsedMs != null ? formatElapsed(elapsedMs) : ""}`];
+    if (input?.tokens != null) segments.push(formatTokens(input.tokens));
+    if (input?.costUsd != null) segments.push(formatCost(input.costUsd, input.isQuota));
+    const title = truncateEnd(segments.join(" · "), TITLE_CAP);
+    let message = `Needs approval: ${toolName}`;
     if (reason) message += `\n${reason}`;
     if (preview) message += `\n${preview}`;
     message += `\n\n${contextLine}`;

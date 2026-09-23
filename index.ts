@@ -13,6 +13,7 @@ import {
   formatContext,
   formatDetachedHead,
   lastErrorMessage,
+  parseAskInput,
   parseGitBranch,
   resolveCredentials,
   toolPreview,
@@ -43,6 +44,9 @@ type DispatchParts = {
   toolName?: string;
   reason?: string;
   preview?: string;
+  topic?: string;
+  question?: string;
+  options?: unknown[];
 };
 
 type HeldTurn = {
@@ -308,6 +312,9 @@ async function runDispatch(kind: "done" | "blocked", parts: DispatchParts, ctx: 
           toolName: parts.toolName ?? "",
           reason: parts.reason,
           preview: parts.preview,
+          topic: parts.topic,
+          question: parts.question,
+          options: parts.options,
           elapsedMs: parts.elapsedMs,
           tokens: parts.tokens,
           costUsd: parts.costUsd,
@@ -480,9 +487,12 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
           return;
         }
         const callId = typeof event?.toolCallId === "string" ? event.toolCallId : "";
-        const preview = (callId && previewMap.get(callId)) || toolPreview(event?.args);
-        const reason =
-          typeof event?.intent === "string" && event.intent.length > 0 ? event.intent : undefined;
+        const askArgs = {
+          ...(event?.args !== null && typeof event?.args === "object" ? (event.args as Record<string, unknown>) : {}),
+          intent: typeof event?.intent === "string" ? event.intent : undefined,
+        };
+        const parsed = parseAskInput(askArgs);
+        const preview = (callId && previewMap.get(callId)) || toolPreview(askArgs);
         const now = Date.now();
         const stats = turnStats(lastMessages, now);
         const isQuota = isQuotaSession(ctx, stats.provider);
@@ -491,7 +501,9 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
           project: path.basename(resolveCwd(ctx)),
           contextLine: "",
           toolName: "ask",
-          reason,
+          topic: parsed.topic,
+          question: parsed.question,
+          options: parsed.options,
           preview,
           elapsedMs: stats.elapsedMs,
           tokens: stats.tokens,
@@ -515,7 +527,9 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
             {
               fingerprint: fp,
               toolName: "ask",
-              reason,
+              topic: parsed.topic,
+              question: parsed.question,
+              options: parsed.options,
               preview,
               elapsedMs: stats.elapsedMs,
               tokens: stats.tokens,
@@ -528,6 +542,7 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
           trace({ kind: "blocked", action: "skip", reason: decision.reason, fingerprint: fp });
         }
         if (callId) previewMap.delete(callId);
+        return;
       } catch {
         // ask tool_execution_start must never throw
       }

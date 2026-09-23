@@ -20,6 +20,9 @@ import {
   decideBlocked,
   encodeForm,
   buildFormBody,
+  extractQuestionTopic,
+  formatQuestionOptions,
+  parseAskInput,
 } from "./lib";
 
 // Dummy credential literals only (USER1234 / TOK5678) — never real secrets.
@@ -196,7 +199,7 @@ describe("toolPreview", () => {
         },
       ],
     };
-    expect(toolPreview(input)).toBe("Which authentication method?\n[JWT | OAuth2 | Session cookies]");
+    expect(toolPreview(input)).toBe("Which authentication method?\n› JWT  ·  OAuth2  ·  Session cookies");
   });
 
   test("renders simple question string input", () => {
@@ -412,15 +415,34 @@ describe("buildNotification", () => {
     });
     expect(n.message).toBe("Needs approval: bash\n\nStandalone · myproj");
   });
-  test("blocked notification for ask tool uses Question from agent heading", () => {
+  test("question notification formats topic in title with 💬 and clean options in body", () => {
     const n = buildNotification({
       kind: "blocked",
-      project: "myproj",
+      project: "zachhudson",
       toolName: "ask",
-      preview: "Which database?\n[PostgreSQL | SQLite]",
-      contextLine: "Standalone · myproj",
+      topic: "Database preference",
+      question: "Which database do you prefer?",
+      options: ["PostgreSQL", "SQLite", "Other (type your own)"],
+      contextLine: "Herdr · ws w1 · pane w1:p3",
     });
-    expect(n.message).toBe("Question from agent:\nWhich database?\n[PostgreSQL | SQLite]\n\nStandalone · myproj");
+    expect(n.title).toBe("zachhudson · 💬 Database preference");
+    expect(n.message).toBe("Which database do you prefer?\n› PostgreSQL  ·  SQLite\n\nHerdr · ws w1 · pane w1:p3");
+    expect(n.priority).toBe(1);
+    expect(n.sound).toBe("siren");
+  });
+
+  test("free-form question without choices has no options line", () => {
+    const n = buildNotification({
+      kind: "blocked",
+      project: "librequote",
+      toolName: "ask",
+      topic: "Target output format",
+      question: "Should the generated quote include the B-rep surface breakdown?",
+      options: [],
+      contextLine: "",
+    });
+    expect(n.title).toBe("librequote · 💬 Target output format");
+    expect(n.message).toBe("Should the generated quote include the B-rep surface breakdown?");
     expect(n.priority).toBe(1);
     expect(n.sound).toBe("siren");
   });
@@ -692,5 +714,44 @@ describe("buildFormBody", () => {
     expect(body).toContain(`message=${enc(n.message)}`);
     expect(body).toContain("priority=0");
     expect(body).not.toContain("sound=");
+  });
+});
+
+describe("extractQuestionTopic / parseAskInput", () => {
+  test("header takes precedence", () => {
+    expect(
+      extractQuestionTopic({
+        header: "Database preference",
+        intent: "Asking database preference",
+        id: "database",
+      }),
+    ).toBe("Database preference");
+  });
+
+  test("intent prefix is stripped and capitalized", () => {
+    expect(extractQuestionTopic({ intent: "Asking database preference" })).toBe("Database preference");
+    expect(extractQuestionTopic({ intent: "Asking for target output format" })).toBe("Target output format");
+    expect(extractQuestionTopic({ intent: "Ask user about preferred database" })).toBe("Preferred database");
+  });
+
+  test("id is formatted when no header or intent", () => {
+    expect(extractQuestionTopic({ id: "database_preference" })).toBe("Database preference");
+    expect(extractQuestionTopic({ id: "target_output_format" })).toBe("Target output format");
+  });
+
+  test("parseAskInput extracts question, topic and options", () => {
+    const parsed = parseAskInput({
+      questions: [
+        {
+          id: "database",
+          question: "Which database do you prefer?",
+          options: [{ label: "PostgreSQL" }, { label: "SQLite" }, { label: "Other (type your own)" }],
+        },
+      ],
+      intent: "Asking database preference",
+    });
+    expect(parsed.topic).toBe("Database preference");
+    expect(parsed.question).toBe("Which database do you prefer?");
+    expect(parsed.options).toEqual(["PostgreSQL", "SQLite", "Other (type your own)"]);
   });
 });
