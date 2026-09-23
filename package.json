@@ -1,6 +1,6 @@
 {
   "name": "ompush",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Pushover notifications for oh-my-pi: one push when a prompt finishes, one siren when blocked on a question or tool approval. Zero subagent spam.",
   "type": "module",
   "license": "MIT",

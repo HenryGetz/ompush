@@ -415,7 +415,7 @@ describe("buildNotification", () => {
     });
     expect(n.message).toBe("Needs approval: bash\n\nStandalone · myproj");
   });
-  test("question notification formats topic in title with 💬 and clean options in body", () => {
+  test("question notification puts question in title with 💬 and clean choices in body", () => {
     const n = buildNotification({
       kind: "blocked",
       project: "zachhudson",
@@ -425,13 +425,13 @@ describe("buildNotification", () => {
       options: ["PostgreSQL", "SQLite", "Other (type your own)"],
       contextLine: "Herdr · ws w1 · pane w1:p3",
     });
-    expect(n.title).toBe("zachhudson · 💬 Database preference");
-    expect(n.message).toBe("Which database do you prefer?\n› PostgreSQL  ·  SQLite\n\nHerdr · ws w1 · pane w1:p3");
+    expect(n.title).toBe("zachhudson · 💬 Which database do you prefer?");
+    expect(n.message).toBe("› PostgreSQL  ·  SQLite\n\nHerdr · ws w1 · pane w1:p3");
     expect(n.priority).toBe(1);
     expect(n.sound).toBe("siren");
   });
 
-  test("free-form question without choices has no options line", () => {
+  test("free-form question without choices has question in title and context in body", () => {
     const n = buildNotification({
       kind: "blocked",
       project: "librequote",
@@ -439,10 +439,10 @@ describe("buildNotification", () => {
       topic: "Target output format",
       question: "Should the generated quote include the B-rep surface breakdown?",
       options: [],
-      contextLine: "",
+      contextLine: "Herdr · ws w1 · pane w1:p3",
     });
-    expect(n.title).toBe("librequote · 💬 Target output format");
-    expect(n.message).toBe("Should the generated quote include the B-rep surface breakdown?");
+    expect(n.title).toBe("librequote · 💬 Should the generated quote include the B-rep surface breakdown?");
+    expect(n.message).toBe("Herdr · ws w1 · pane w1:p3");
     expect(n.priority).toBe(1);
     expect(n.sound).toBe("siren");
   });

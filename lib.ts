@@ -565,19 +565,21 @@ export function buildNotification(input: NotificationInput): Notification {
   if (kind === "blocked") {
     const toolName = trimmed(input?.toolName) || "tool";
     if (toolName === "ask") {
-      const topic = trimmed(input?.topic) || "Question";
-      const title = truncateEnd(`${project} · 💬 ${topic}`, TITLE_CAP);
-      let bodyText = "";
-      if (typeof input?.question === "string" && input.question.trim().length > 0) {
-        bodyText = input.question.trim();
-        const optLine = formatQuestionOptions((input?.options as unknown[]) ?? []);
-        if (optLine) bodyText += `\n${optLine}`;
-      } else if (input?.preview) {
-        bodyText = asText(input.preview);
-      } else {
-        bodyText = "Waiting for your answer";
+      const question = trimmed(input?.question);
+      const topic = trimmed(input?.topic);
+      const titleText = question || topic || "Question";
+      const title = truncateEnd(`${project} · 💬 ${titleText}`, TITLE_CAP);
+      const bodyParts: string[] = [];
+      const optLine = formatQuestionOptions((input?.options as unknown[]) ?? []);
+      if (optLine) {
+        bodyParts.push(optLine);
+      } else if (input?.preview && input.preview !== question) {
+        bodyParts.push(asText(input.preview));
       }
-      const message = contextLine ? `${bodyText}\n\n${contextLine}` : bodyText;
+      if (contextLine) {
+        bodyParts.push(contextLine);
+      }
+      const message = bodyParts.join("\n\n") || "Waiting for your answer";
       return {
         kind,
         title,
