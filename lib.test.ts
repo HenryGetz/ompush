@@ -15,6 +15,7 @@ import {
   fingerprint,
   buildNotification,
   turnStats,
+  isAbortedTurn,
   lastErrorMessage,
   decideDone,
   decideBlocked,
@@ -561,6 +562,27 @@ describe("lastErrorMessage", () => {
   });
 });
 
+describe("isAbortedTurn", () => {
+  test("returns true when last assistant has stopReason aborted", () => {
+    expect(isAbortedTurn([{ role: "user" }, { role: "assistant", stopReason: "aborted" }])).toBe(true);
+  });
+
+  test("returns true when error message indicates user interruption", () => {
+    expect(
+      isAbortedTurn([{ role: "user" }, { role: "assistant", errorMessage: "Interrupted by user" }]),
+    ).toBe(true);
+  });
+
+  test("returns false when last assistant stopped normally", () => {
+    expect(isAbortedTurn([{ role: "user" }, { role: "assistant", stopReason: "stop" }])).toBe(false);
+  });
+
+  test("returns false for non-assistant or empty messages", () => {
+    expect(isAbortedTurn([])).toBe(false);
+    expect(isAbortedTurn([{ role: "user" }])).toBe(false);
+  });
+});
+
 describe("fingerprint", () => {
   test("is stable, short and hex", () => {
     const f = fingerprint("titlemessage");
@@ -584,6 +606,9 @@ describe("decideDone", () => {
     lastSent: null,
   };
 
+  test("aborted turns are skipped", () => {
+    expect(decideDone({ ...base, isAborted: true })).toEqual({ action: "skip", reason: "aborted" });
+  });
   test("continuation settles are skipped", () => {
     expect(decideDone({ ...base, willContinue: true })).toEqual({
       action: "skip",

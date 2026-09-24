@@ -12,6 +12,7 @@ import {
   fingerprint,
   formatContext,
   formatDetachedHead,
+  isAbortedTurn,
   lastErrorMessage,
   parseAskInput,
   parseGitBranch,
@@ -559,6 +560,13 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
           trace({ kind: "done", action: "skip", reason: "continuation" });
           return;
         }
+        const msgs: unknown[] = Array.isArray(messages) ? messages : [];
+        if (isAbortedTurn(msgs)) {
+          pendingHold = false;
+          pendingDone = undefined;
+          trace({ kind: "done", action: "skip", reason: "aborted" });
+          return;
+        }
         const top = isTopLevelSession(ctx);
         let busyJobs = 0;
         try {
@@ -573,7 +581,6 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
         } catch {
           busyJobs += 1; // snapshot unavailable — hold rather than spam
         }
-        const msgs: unknown[] = Array.isArray(messages) ? messages : [];
         const lastText = lastAssistantText(messages);
         const now = Date.now();
         const stats = turnStats(msgs, now);
@@ -634,6 +641,11 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
       try {
         if (!pendingHold) return;
         pendingHold = false;
+        if (isAbortedTurn(lastMessages)) {
+          pendingDone = undefined;
+          trace({ kind: "done", action: "skip", reason: "aborted" });
+          return;
+        }
         const held: HeldTurn = pendingDone ?? { lastText: "" };
         pendingDone = undefined;
         const stats = turnStats(lastMessages, Date.now());

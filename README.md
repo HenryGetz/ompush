@@ -52,9 +52,10 @@ Herdr · ws w1 · pane w1:p3
 ```
 
 Works in plain terminals and inside Herdr panes. Subagents, advisors, and nested `omp` runs
-are **silent** — they are children, and they can wait like everyone else. Approval flapping is
-debounced. Startup, tool success, and "working..." transitions are not achievements and do not
-notify.
+are **silent** — they are children, and they can wait like everyone else. User interrupts
+(Escape / Ctrl+C) are **silent** — you stopped the agent, you are at the keyboard, and it will
+not buzz your phone about a task you just cancelled. Approval flapping is debounced. Startup,
+tool success, and "working..." transitions are not achievements and do not notify.
 
 ## Install
 

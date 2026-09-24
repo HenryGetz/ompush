@@ -548,6 +548,28 @@ export function lastErrorMessage(messages: unknown[]): string | undefined {
   }
   return undefined;
 }
+export function isAbortedTurn(messages: unknown[]): boolean {
+  try {
+    if (!Array.isArray(messages)) return false;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i] as {
+        role?: unknown;
+        stopReason?: unknown;
+        errorMessage?: unknown;
+      } | null;
+      if (m && m.role === "assistant") {
+        if (m.stopReason === "aborted") return true;
+        if (typeof m.errorMessage === "string" && /interrupted|aborted|cancelled/i.test(m.errorMessage)) {
+          return true;
+        }
+        return false;
+      }
+    }
+  } catch {
+    // defensive: never throws
+  }
+  return false;
+}
 
 export function buildNotification(input: NotificationInput): Notification {
   const kind: "done" | "blocked" = input?.kind === "blocked" ? "blocked" : "done";
@@ -624,6 +646,7 @@ export function buildFormBody(
 
 export function decideDone(i: {
   isTopLevel: boolean;
+  isAborted?: boolean;
   willContinue?: boolean;
   busyJobs?: number;
   pendingHold?: boolean;
@@ -631,6 +654,7 @@ export function decideDone(i: {
   lastSent?: { fingerprint: string; atMs: number } | null;
   nowMs: number;
 }): Decision {
+  if (i?.isAborted === true) return { action: "skip", reason: "aborted" };
   if (i?.willContinue === true) return { action: "skip", reason: "continuation" };
   if (i?.isTopLevel !== true) return { action: "skip", reason: "subagent-or-nested" };
   if (typeof i?.busyJobs === "number" && i.busyJobs > 0) return { action: "hold", reason: "busy" };
