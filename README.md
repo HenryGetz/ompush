@@ -8,10 +8,10 @@ It fires exactly two kinds of push, and nothing else — a prompt summary and an
 
 | Event | Title | Priority | Sound | Quiet hours |
 |---|---|---|---|---|
-| Prompt finished | `zachhudson · ✓4m 12s · 18.4k · 4¢` | 0 normal | device default | respected |
-| Prompt finished (quota) | `zachhudson · ✓4m 12s · 18.4k · ⓠ0.61¢` | 0 normal | device default | respected |
+| Prompt finished | `myproj · ✓4m 12s · 18.4k · 4¢` | 0 normal | device default | respected |
+| Prompt finished (quota) | `myproj · ✓4m 12s · 18.4k · ⓠ0.61¢` | 0 normal | device default | respected |
 | Prompt failed | `myproj · ❌1m 5s · 3.2k · 1¢` | 0 normal | device default | respected |
-| Question asked (`ask`) | `zachhudson · 💬 Which database do you prefer?` | 1 high | `siren` | bypassed |
+| Question asked (`ask`) | `myproj · 💬 Which database do you prefer?` | 1 high | `siren` | bypassed |
 | Tool approval needed | `myproj · ⚠️2m 5s · 6.1k · 2¢` | 1 high | `siren` | bypassed |
 
 Title anatomy: `project · <status><elapsed> · tokens · cost`. The status icon is the whole
@@ -37,7 +37,7 @@ screen, while the description carries the clean choices (and your Herdr pane loc
 bottom):
 
 ```text
-zachhudson · 💬 Which database do you prefer?
+myproj · 💬 Which database do you prefer?
 › PostgreSQL  ·  SQLite
 
 Herdr · ws w1 · pane w1:p3

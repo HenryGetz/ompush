@@ -272,14 +272,14 @@ describe("buildNotification", () => {
   test("reference example is byte-exact", () => {
     const n = buildNotification({
       kind: "done",
-      project: "zachhudson",
-      contextLine: "Standalone · zachhudson · main",
+      project: "myproj",
+      contextLine: "Standalone · myproj · main",
       lastText: "ran the suite",
       elapsedMs: 252_000,
       tokens: 18_400,
       costUsd: 0.04,
     });
-    expect(n.title).toBe("zachhudson · ✓4m 12s · 18.4k · 4¢");
+    expect(n.title).toBe("myproj · ✓4m 12s · 18.4k · 4¢");
     expect(n.priority).toBe(0);
     expect(n.sound).toBeUndefined();
     expect(n.message.length).toBeLessThanOrEqual(MESSAGE_CAP);
@@ -287,15 +287,15 @@ describe("buildNotification", () => {
   test("done notification with quota cost carries ⓠ prefix", () => {
     const n = buildNotification({
       kind: "done",
-      project: "zachhudson",
-      contextLine: "Standalone · zachhudson · main",
+      project: "myproj",
+      contextLine: "Standalone · myproj · main",
       lastText: "done",
       elapsedMs: 252_000,
       tokens: 18_400,
       costUsd: 0.00614,
       isQuota: true,
     });
-    expect(n.title).toBe("zachhudson · ✓4m 12s · 18.4k · ⓠ0.61¢");
+    expect(n.title).toBe("myproj · ✓4m 12s · 18.4k · ⓠ0.61¢");
   });
 
   test("done body is exactly the text plus context — no status prefix, no elapsed suffix", () => {
@@ -419,14 +419,14 @@ describe("buildNotification", () => {
   test("question notification puts question in title with 💬 and clean choices in body", () => {
     const n = buildNotification({
       kind: "blocked",
-      project: "zachhudson",
+      project: "myproj",
       toolName: "ask",
       topic: "Database preference",
       question: "Which database do you prefer?",
       options: ["PostgreSQL", "SQLite", "Other (type your own)"],
       contextLine: "Herdr · ws w1 · pane w1:p3",
     });
-    expect(n.title).toBe("zachhudson · 💬 Which database do you prefer?");
+    expect(n.title).toBe("myproj · 💬 Which database do you prefer?");
     expect(n.message).toBe("› PostgreSQL  ·  SQLite\n\nHerdr · ws w1 · pane w1:p3");
     expect(n.priority).toBe(1);
     expect(n.sound).toBe("siren");
