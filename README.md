@@ -51,8 +51,9 @@ librequote · 💬 Should the generated quote include the B-rep surface breakdow
 Herdr · ws w1 · pane w1:p3
 ```
 
-Works in plain terminals and inside Herdr panes. Subagents, advisors, and nested `omp` runs
-are **silent** — they are children, and they can wait like everyone else. User interrupts
+Works in plain terminals and inside Herdr panes. Subagents, advisors, nested `omp` runs, and
+[T3 Code](https://t3.codes) `delegate_task` children are **silent** — they are children, and
+they can wait like everyone else. Only the top-level T3 thread notifies. User interrupts
 (Escape / Ctrl+C) are **silent** — you stopped the agent, you are at the keyboard, and it will
 not buzz your phone about a task you just cancelled. Approval flapping is debounced. Startup,
 tool success, and "working..." transitions are not achievements and do not notify.
@@ -94,6 +95,8 @@ Keys are never logged, never in `argv`, never in files other than the one above.
 - Delivery is fire-and-forget from a detached process with a 7-second timeout. A dead network
   or a broken key cannot stall, crash, or slow your session. Failures are silent, like your
   last deploy, and recorded in `~/.local/state/omp-pushover/deliveries.log`.
+- T3 child detection reads T3's local thread graph (`$T3CODE_HOME/userdata/statev2.sqlite`).
+  If that file cannot be read, the push is sent rather than lost.
 - Every decision (sent / suppressed / held) is logged without message content to
   `~/.local/state/omp-pushover/trace.log`, for when you want to argue with the machine.
 - Background jobs are allowed to settle first: one prompt that fans out to ten workers is one

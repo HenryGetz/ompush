@@ -22,6 +22,7 @@ import {
   type Credentials,
   type Notification,
 } from "./lib";
+import { t3SessionLineage, type T3Lineage } from "./t3";
 
 type CtxLike = {
   cwd?: unknown;
@@ -68,6 +69,7 @@ const TRACE_LOG = path.join(STATE_DIR, "trace.log");
 const DELIVERIES_LOG = path.join(STATE_DIR, "deliveries.log");
 const PREVIEW_MAP_CAP = 16;
 const SENT_BLOCKED_CAP = 8;
+const T3_LINEAGE_CACHE_CAP = 64;
 
 let cachedCreds: Credentials | null = null;
 let credsResolved = false;
@@ -77,6 +79,7 @@ const sentBlocked: Array<{ fingerprint: string; at: number }> = [];
 let pendingHold = false;
 let pendingDone: HeldTurn | undefined;
 let lastMessages: unknown[] = [];
+const t3LineageCache = new Map<string, T3Lineage>();
 
 function trace(entry: {
   kind: string;
@@ -101,9 +104,44 @@ function trace(entry: {
   }
 }
 
+function sessionFileOf(ctx: CtxLike): string | null {
+  try {
+    const file = ctx?.sessionManager?.getSessionFile?.();
+    return typeof file === "string" && file.length > 0 ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * T3 Code launches delegated threads as separate top-level OMP sessions, so
+ * OMP's own nested markers do not apply. Ask T3's thread graph whether this
+ * transcript belongs to a `delegate_task` child. Unknown answers fail open.
+ */
+function isT3SubagentSession(ctx: CtxLike): { ok: boolean; reason?: string } {
+  const sessionFile = sessionFileOf(ctx);
+  const t3Home = process.env.T3CODE_HOME;
+  if (sessionFile === null || !t3Home) return { ok: true };
+  let lineage = t3LineageCache.get(sessionFile);
+  if (lineage === undefined) {
+    lineage = t3SessionLineage({ t3Home, sessionFile });
+    if (lineage !== "unknown") {
+      while (t3LineageCache.size >= T3_LINEAGE_CACHE_CAP) {
+        const oldest = t3LineageCache.keys().next();
+        if (oldest.done) break;
+        t3LineageCache.delete(oldest.value);
+      }
+      t3LineageCache.set(sessionFile, lineage);
+    }
+  }
+  return lineage === "subagent" ? { ok: false, reason: "t3-subagent" } : { ok: true };
+}
+
 /** Layered subagent/nested suppression; each failure names its layer for the trace. */
 function isTopLevelSession(ctx: CtxLike): { ok: boolean; reason?: string } {
   if (process.env.OMPCODE === "1") return { ok: false, reason: "nested-omp" };
+  const t3 = isT3SubagentSession(ctx);
+  if (!t3.ok) return t3;
   try {
     const file = ctx?.sessionManager?.getSessionFile?.();
     if (typeof file === "string" && file.length > 0) {
@@ -337,6 +375,7 @@ async function runDispatch(kind: "done" | "blocked", parts: DispatchParts, ctx: 
         PO_URL: poUrl,
         PO_LOG: DELIVERIES_LOG,
         PO_KIND: kind,
+        PO_SESSION_FILE: sessionFileOf(ctx) ?? "",
         PO_SPAWN_MS: String(Math.max(0, Math.round(performance.now() - t0))),
       },
     });
@@ -456,6 +495,7 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
               costUsd: stats.costUsd,
               isQuota,
             },
+            ctx,
           );
         } else {
           const reasonCode =
@@ -641,6 +681,12 @@ export default function pushoverNotify(pi: ExtensionAPI): void {
       try {
         if (!pendingHold) return;
         pendingHold = false;
+        const top = isTopLevelSession(ctx);
+        if (!top.ok) {
+          pendingDone = undefined;
+          trace({ kind: "done", action: "skip", reason: top.reason ?? "subagent-or-nested" });
+          return;
+        }
         if (isAbortedTurn(lastMessages)) {
           pendingDone = undefined;
           trace({ kind: "done", action: "skip", reason: "aborted" });
