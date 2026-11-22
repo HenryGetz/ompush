@@ -22,7 +22,7 @@ import {
   type Credentials,
   type Notification,
 } from "./lib";
-import { t3SessionLineage, type T3Lineage } from "./t3";
+import { t3SessionDeepLink, t3SessionInfo, type T3SessionInfo } from "./t3";
 
 type CtxLike = {
   cwd?: unknown;
@@ -69,7 +69,7 @@ const TRACE_LOG = path.join(STATE_DIR, "trace.log");
 const DELIVERIES_LOG = path.join(STATE_DIR, "deliveries.log");
 const PREVIEW_MAP_CAP = 16;
 const SENT_BLOCKED_CAP = 8;
-const T3_LINEAGE_CACHE_CAP = 64;
+const T3_SESSION_CACHE_CAP = 64;
 
 let cachedCreds: Credentials | null = null;
 let credsResolved = false;
@@ -79,7 +79,8 @@ const sentBlocked: Array<{ fingerprint: string; at: number }> = [];
 let pendingHold = false;
 let pendingDone: HeldTurn | undefined;
 let lastMessages: unknown[] = [];
-const t3LineageCache = new Map<string, T3Lineage>();
+const t3SessionCache = new Map<string, T3SessionInfo>();
+const t3DeepLinkCache = new Map<string, string>();
 
 function trace(entry: {
   kind: string;
@@ -113,6 +114,24 @@ function sessionFileOf(ctx: CtxLike): string | null {
   }
 }
 
+function cacheSet<V>(cache: Map<string, V>, key: string, value: V): void {
+  while (cache.size >= T3_SESSION_CACHE_CAP) {
+    const oldest = cache.keys().next();
+    if (oldest.done) break;
+    cache.delete(oldest.value);
+  }
+  cache.set(key, value);
+}
+
+/** Unknown lineage is never cached, so a later query can still prove it top-level. */
+function t3SessionInfoCached(sessionFile: string, t3Home: string): T3SessionInfo {
+  const cached = t3SessionCache.get(sessionFile);
+  if (cached !== undefined) return cached;
+  const info = t3SessionInfo({ t3Home, sessionFile });
+  if (info.lineage !== "unknown") cacheSet(t3SessionCache, sessionFile, info);
+  return info;
+}
+
 /**
  * T3 Code launches delegated threads as separate top-level OMP sessions, so
  * OMP's own nested markers do not apply. Ask T3's thread graph whether this
@@ -122,19 +141,32 @@ function isT3SubagentSession(ctx: CtxLike): { ok: boolean; reason?: string } {
   const sessionFile = sessionFileOf(ctx);
   const t3Home = process.env.T3CODE_HOME;
   if (sessionFile === null || !t3Home) return { ok: true };
-  let lineage = t3LineageCache.get(sessionFile);
-  if (lineage === undefined) {
-    lineage = t3SessionLineage({ t3Home, sessionFile });
-    if (lineage !== "unknown") {
-      while (t3LineageCache.size >= T3_LINEAGE_CACHE_CAP) {
-        const oldest = t3LineageCache.keys().next();
-        if (oldest.done) break;
-        t3LineageCache.delete(oldest.value);
-      }
-      t3LineageCache.set(sessionFile, lineage);
-    }
+  const info = t3SessionInfoCached(sessionFile, t3Home);
+  return info.lineage === "subagent" ? { ok: false, reason: "t3-subagent" } : { ok: true };
+}
+
+/** Pushover supplementary URL: the exact T3 thread in the T3 mobile app. */
+function resolveT3DeepLink(ctx: CtxLike): string | null {
+  try {
+    const sessionFile = sessionFileOf(ctx);
+    const t3Home = process.env.T3CODE_HOME;
+    if (sessionFile === null || !t3Home) return null;
+    if (process.env.OMPCODE === "1") return null;
+    const cached = t3DeepLinkCache.get(sessionFile);
+    if (cached !== undefined) return cached;
+    if (t3SessionInfoCached(sessionFile, t3Home).lineage === "subagent") return null;
+    const link = t3SessionDeepLink({
+      t3Home,
+      sessionFile,
+      threadId: process.env.T3CODE_THREAD_ID,
+      scheme: process.env.OMPUSH_T3_URL_SCHEME,
+    });
+    if (link === null || link.length === 0) return null;
+    cacheSet(t3DeepLinkCache, sessionFile, link);
+    return link;
+  } catch {
+    return null;
   }
-  return lineage === "subagent" ? { ok: false, reason: "t3-subagent" } : { ok: true };
 }
 
 /** Layered subagent/nested suppression; each failure names its layer for the trace. */
@@ -359,6 +391,11 @@ async function runDispatch(kind: "done" | "blocked", parts: DispatchParts, ctx: 
           costUsd: parts.costUsd,
           isQuota: parts.isQuota,
         });
+  const deepLink = resolveT3DeepLink(ctx);
+  if (deepLink !== null) {
+    n.url = deepLink;
+    n.urlTitle = "Open thread in T3 Code";
+  }
   const body = buildFormBody(creds, n);
   const poUrl = process.env.PUSHOVER_API_BASE || "https://api.pushover.net/1/messages.json";
   const t0 = performance.now();

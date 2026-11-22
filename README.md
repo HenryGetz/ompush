@@ -58,6 +58,23 @@ they can wait like everyone else. Only the top-level T3 thread notifies. User in
 not buzz your phone about a task you just cancelled. Approval flapping is debounced. Startup,
 tool success, and "working..." transitions are not achievements and do not notify.
 
+## Open on your phone
+
+Top-level T3 threads also carry a supplementary link — `Open thread in T3 Code` — that deep-links
+to the exact thread in the T3 Code iOS app (`t3code://threads/<environment>/<thread>`).
+
+Pushover does not run actions when you tap the notification itself, so there is no one-tap
+launch and we won't pretend otherwise. The real sequence: tap the notification to open Pushover,
+expand the message, tap the link. Two taps and an expansion, which beats remembering where that
+thread was.
+
+You need the T3 Code app installed and paired to the same environment that sent the push. A phone
+that never paired with that environment cannot open the chat, and no URL scheme fixes that.
+Defaults are `t3code`; dev and preview builds use `t3code-dev` and `t3code-preview`, and
+`OMPUSH_T3_URL_SCHEME` picks one. Subagents and `delegate_task` children get no link, same as they
+get no push. Plain OMP sessions, or a thread we cannot resolve, still notify — just without the
+link.
+
 ## Install
 
 ```sh
@@ -97,6 +114,8 @@ Keys are never logged, never in `argv`, never in files other than the one above.
   last deploy, and recorded in `~/.local/state/omp-pushover/deliveries.log`.
 - T3 child detection reads T3's local thread graph (`$T3CODE_HOME/userdata/statev2.sqlite`).
   If that file cannot be read, the push is sent rather than lost.
+- A T3 link that cannot be built is omitted, not truncated or half-filled. Delivery never fails
+  because of it.
 - Every decision (sent / suppressed / held) is logged without message content to
   `~/.local/state/omp-pushover/trace.log`, for when you want to argue with the machine.
 - Background jobs are allowed to settle first: one prompt that fans out to ten workers is one

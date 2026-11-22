@@ -3,6 +3,8 @@ import {
   MESSAGE_CAP,
   LAST_TEXT_CAP,
   PREVIEW_CAP,
+  URL_CAP,
+  URL_TITLE_CAP,
   resolveCredentials,
   parseGitBranch,
   formatDetachedHead,
@@ -739,6 +741,54 @@ describe("buildFormBody", () => {
     expect(body).toContain(`message=${enc(n.message)}`);
     expect(body).toContain("priority=0");
     expect(body).not.toContain("sound=");
+  });
+
+  test("url and url_title are appended and percent-encoded", () => {
+    const url = "t3code://threads/env-1/thread-2";
+    const urlTitle = "Open thread in T3 Code";
+    const body = buildFormBody(creds, { title: "t", message: "m", priority: 0, url, urlTitle });
+    expect(body).toContain(`url=${enc(url)}`);
+    expect(body).toContain(`url_title=${enc(urlTitle)}`);
+  });
+
+  test("url longer than the cap drops url_title too", () => {
+    const url = `t3code://threads/${"a".repeat(URL_CAP)}/thread-2`;
+    const body = buildFormBody(creds, {
+      title: "t",
+      message: "m",
+      priority: 0,
+      url,
+      urlTitle: "Open thread in T3 Code",
+    });
+    expect(url.length).toBeGreaterThan(URL_CAP);
+    expect(body).not.toContain("url=");
+    expect(body).not.toContain("url_title=");
+  });
+
+  test("no url adds neither url nor url_title", () => {
+    const n = buildNotification({
+      kind: "done",
+      project: "myproj",
+      lastText: "all good",
+      contextLine: "Standalone · myproj",
+    });
+    const body = buildFormBody(creds, n);
+    expect(body).not.toContain("url=");
+    expect(body).not.toContain("url_title=");
+  });
+
+  test("url_title is truncated to the title cap", () => {
+    const urlTitle = "x".repeat(URL_TITLE_CAP + 50);
+    const body = buildFormBody(creds, {
+      title: "t",
+      message: "m",
+      priority: 0,
+      url: "t3code://threads/env-1/thread-2",
+      urlTitle,
+    });
+    const expected = truncateEnd(urlTitle, URL_TITLE_CAP);
+    expect(expected.length).toBe(URL_TITLE_CAP);
+    expect(body).toContain(`url_title=${enc(expected)}`);
   });
 });
 

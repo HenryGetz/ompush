@@ -5,6 +5,8 @@ export const MESSAGE_CAP = 1024;
 export const TITLE_CAP = 250;
 export const PREVIEW_CAP = 200;
 export const LAST_TEXT_CAP = 900;
+export const URL_CAP = 512;
+export const URL_TITLE_CAP = 100;
 export const DONE_DEDUPE_WINDOW_MS = 15_000;
 export const BLOCKED_MIN_INTERVAL_MS = 20_000;
 export const BLOCKED_DEDUPE_WINDOW_MS = 120_000;
@@ -21,6 +23,8 @@ export type Notification = {
   message: string;
   priority: number;
   sound?: string;
+  url?: string;
+  urlTitle?: string;
 };
 
 export type NotificationInput = {
@@ -630,7 +634,15 @@ export function buildNotification(input: NotificationInput): Notification {
 
 export function buildFormBody(
   creds: Credentials,
-  n: { kind?: "done" | "blocked"; title: string; message: string; priority: number; sound?: string },
+  n: {
+    kind?: "done" | "blocked";
+    title: string;
+    message: string;
+    priority: number;
+    sound?: string;
+    url?: string;
+    urlTitle?: string;
+  },
 ): string {
   const pairs: Array<readonly [string, string | number]> = [
     ["token", asText(creds?.token)],
@@ -641,6 +653,14 @@ export function buildFormBody(
   ];
   const sound = asText(n?.sound);
   if (sound) pairs.push(["sound", sound]);
+  const url = asText(n?.url);
+  // Pushover rejects longer URLs; a truncated deep link would be broken, so drop it.
+  // url_title is only valid alongside url.
+  if (url && url.length <= URL_CAP) {
+    pairs.push(["url", url]);
+    const urlTitle = truncateEnd(asText(n?.urlTitle), URL_TITLE_CAP);
+    if (urlTitle) pairs.push(["url_title", urlTitle]);
+  }
   return encodeForm(pairs);
 }
 
